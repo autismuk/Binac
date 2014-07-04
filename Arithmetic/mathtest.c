@@ -70,7 +70,7 @@ void checkMath(void) {
 
 int main(int argc,char *argv[]) {
 	srand(42); 																			// Seed RNG
-	for (int i = 1;i < 1000*100000;i++)													// Do many tests.
+	for (int i = 1;i < 1000*100;i++)													// Do many tests.
 		checkMath();
 	printf("Arithmetic okay.\n"); 														// Passed !
 }
