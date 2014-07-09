@@ -88,6 +88,12 @@ function evaluateExpression(expression)
 	return term 
 end 
 
+function evaluate(code) 
+	if code:find(" ") == nil then return evaluateExpression(code) end 							-- a single value, not an instruction.
+	local opcode,operand = code:match("^([a-z]+)%s*(.*)$")
+	return evaluateExpression(opcode) + bit32.band(evaluateExpression(operand),tonumber("077777",8))
+end 
+
 local opcodes = { a = 5,s = 15, m = 10,d = 3, f = 2 , c = 4, 									-- Binac Opcodes (standard 1950s version)
 										h = 13, l = 12, k = 11, u = 20, t = 14}
 for operation,opcode in pairs(opcodes) do  														-- work through them
@@ -96,13 +102,13 @@ for operation,opcode in pairs(opcodes) do  														-- work through them
 end
 
 local storage = {} 																				-- 512 element array
-for i = 0,511 do storage[i] = { "0","0" } end													-- default first/second values.  If only one, it's a word.
 local pointer = 0 																				-- current code pointer.			
 local isFirstHalf = true 																		-- first or second half ?
 
-print("Reading in source.")
+print("*** BINAC Assembler ***")
+print("Reading in source "..arg[1])
 
-for text in io.lines("sqroot.asm") do 															-- scan file.
+for text in io.lines(arg[1]) do 																-- scan file.
 	text = text:match("^%s*(.*)$"):lower():gsub("%s"," "):gsub("%s+"," ")						-- remove leading spaces, tabs, multi spaces, make l/c
 	local p = text:find(";") if p ~= nil then text = text:sub(1,p-1) end 						-- remove comments.
 	while text:sub(-1,-1) == " " do text = text:sub(1,-2) end 									-- remove trailing spaces.
@@ -121,14 +127,14 @@ for text in io.lines("sqroot.asm") do 															-- scan file.
 			pointer = evaluateExpression(text:sub(4))
 		elseif text:sub(1,4) == "word" then 													-- if it is a WORD.
 			assert(isFirstHalf,"word occurs in middle of word")									-- must not be in the middle of the word.
-			storage[pointer] = text:sub(5) 														-- save the word expression, just one entry, in this pointer.
+			storage[pointer] = { text:match("^word%s*(.*)$") }									-- save the word expression, just one entry, in this pointer.
 			pointer = pointer + 1 																-- bump the pointer. 
 		else  																					-- it is some form of code, store it in the first or second half of the word.
 			if isFirstHalf then 
-				storage[pointer][1] = text 
+				storage[pointer] = { text , "25000" } 											-- text+ skip
 				isFirstHalf = false 
 			else 
-				storage[pointer][2] = text 
+				storage[pointer][2] = text 														-- put in second bit.
 				isFirstHalf = true 
 				pointer = pointer + 1  															-- second half, go to next word.
 			end 
@@ -137,3 +143,23 @@ for text in io.lines("sqroot.asm") do 															-- scan file.
 end 
 
 print("Evaluating literals")
+local addresses = {}
+for addr,code in pairs(storage) do 																-- work through all entries
+	addresses[#addresses+1] = addr 																-- build a list of addresses.
+end 
+table.sort(addresses) 																			-- sort into ascending order
+
+local tgt = arg[1]:gsub("%.asm$",".obj")
+print("Building code, writing "..#addresses.." words to "..tgt)
+local hOut = io.open(tgt,"w")
+for _,addr in ipairs(addresses) do
+	local code = storage[addr]
+	for i = 1,#code do code[i] = evaluate(code[i]) end 											-- evaluate all values.
+	if #code == 2 then 																			-- combine them together. 
+		code[1] = code[1] * math.pow(2,15) + code[2]
+		code[2] = nil 
+	end
+	hOut:write(("%03o = %010o\n"):format(addr,code[1]))
+end 
+hOut:close()
+print("Done.")
